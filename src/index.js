@@ -3,6 +3,7 @@
 const { Translate } = require("@google-cloud/translate");
 const _cliProgress = require("cli-progress");
 const fs = require("fs");
+const { opendir } = fs.promises;
 // create a new progress bar instance and use shades_classic theme
 const progressBar = new _cliProgress.Bar(
   {},
@@ -22,7 +23,7 @@ function removeNoTranslate(sourceString) {
 }
 
 async function main(args) {
-  const [sourceFile, targetLanguageCode='si', keyFilename] = args;
+  const [source, targetLanguageCode='si',target, keyFilename] = args;
   let translateOptions;
   if (!keyFilename) {
     translateOptions = {
@@ -38,28 +39,36 @@ async function main(args) {
   console.log("Instantiating Google client");
   const translate = new Translate(translateOptions);
 
-  let rawData = fs.readFileSync(sourceFile);
-  let jsonData = JSON.parse(rawData);
+  const dir = await opendir(source);
+  for await (const dirent of dir) {
+    if (dirent.name.endsWith("json")) {
+      const sourceFile = source + dirent.name;
+      console.log(dirent.name);
 
-  const translatedObject = {};
-  let numberOfKeys = 0;
-  console.log("Translating ...");
-  progressBar.start(Object.keys(jsonData).length, 0);
-  for (const [key, value] of Object.entries(jsonData)) {
-    const [translation] = await translate.translate(
-      addNoTranslate(value),
-      targetLanguageCode
-    );
-    translatedObject[key] = removeNoTranslate(translation);
-    numberOfKeys++;
-    progressBar.update(numberOfKeys);
+      let rawData = fs.readFileSync(sourceFile);
+      let jsonData = JSON.parse(rawData);
+
+      const translatedObject = {};
+      let numberOfKeys = 0;
+      console.log("Translating ...");
+      progressBar.start(Object.keys(jsonData).length, 0);
+      for (const [key, value] of Object.entries(jsonData)) {
+        const [translation] = await translate.translate(
+          addNoTranslate(value),
+          targetLanguageCode
+        );
+        translatedObject[key] = removeNoTranslate(translation);
+        numberOfKeys++;
+        progressBar.update(numberOfKeys);
+      }
+      progressBar.stop();
+      console.log(`${numberOfKeys} keys translated successfully!`);
+      const targetFile = target + dirent.name;
+      console.log(`Writing ${targetFile} . . .`);
+
+      fs.writeFileSync(targetFile, JSON.stringify(translatedObject, null, 4));
+    }
   }
-  progressBar.stop();
-  console.log(`${numberOfKeys} keys translated successfully!`);
-  const targetFile = targetLanguageCode + ".json";
-  console.log(`Writing ${targetFile} . . .`);
-
-  fs.writeFileSync(targetFile, JSON.stringify(translatedObject, null, 4));
 }
 
 const args = process.argv.slice(2);
